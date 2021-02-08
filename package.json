@@ -1,0 +1,16 @@
+{
+  "dependencies": {
+    "express": "^4.17.1",
+    "ws": "^7.4.2"
+  },
+  "scripts": {
+    "dev": "node src/index.js"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.2.4",
+    "postcss": "^8.2.4",
+    "react": "~17.0.1",
+    "react-dom": "~17.0.1",
+    "tailwindcss": "^2.0.2"
+  }
+}

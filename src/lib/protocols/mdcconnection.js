@@ -8,11 +8,22 @@ module.exports = class MDCConnection {
         this.rport = 1515;
         this.connection = null;
         this.cmdQueue = [];
-        this.recvBuffer = new Buffer.alloc(0);
+        this.recvBuffer = Buffer.alloc(0);
         this.processingCommand = false;
         this.connecting = false;
         this.reconnectTime = 1000;
         this.cmdRate = 10;
+    }
+
+    send(packet) {
+        return new Promise((resolve, reject) => {
+            this.cmdQueue.push({
+                resolve: resolve,
+                reject: reject,
+                packet: packet,
+            });
+            this._transmit();
+        });
     }
 
     _transmit() {
@@ -26,7 +37,7 @@ module.exports = class MDCConnection {
         }
 
         this.processingCommand = true;
-        this.connection.write(this.cmdQueue[0].cmd, null);
+        this.connection.write(this.cmdQueue[0].packet, null);
     }
 
     _onReceive(data) {
@@ -35,17 +46,22 @@ module.exports = class MDCConnection {
         }
 
         this.recvBuffer = Buffer.concat([this.recvBuffer, data]);
-        console.log("ABC> ", this.recvBuffer, this.recvBuffer[0]);
 
-        let buf = this.recvBuffer.toString();
-        let pos = buf.indexOf("\n");
-        if (pos >= 0) {
-            let cmd = this.cmdQueue.shift();
-            let result = buf.substr(0, pos);
-            this.recvBuffer = this.recvBuffer.slice(pos + 1);
-            this.processingCommand = false;
-            cmd.resolve(result);
-            setTimeout(() => { this._transmit(); }, this.cmdRate);
+        while (true) {
+            let buf = this.recvBuffer.toString();
+            let pos = buf.indexOf("\n");
+            if (pos >= 0) {
+                let cmd = this.cmdQueue.shift();
+                let result = buf.substr(0, pos);
+                this.recvBuffer = this.recvBuffer.slice(pos + 1);
+                this.processingCommand = false;
+                cmd.resolve(result);
+                setTimeout(() => {
+                    this._transmit();
+                }, this.cmdRate);
+            } else {
+                break;
+            }
         }
     }
 
@@ -62,7 +78,9 @@ module.exports = class MDCConnection {
             this.connecting = false;
             console.log(`${this.rhost}: `, e.code);
             if (this.cmdQueue.length > 0) {
-                setTimeout(() => { this._connect(); }, this.reconnectTime);
+                setTimeout(() => {
+                    this._connect();
+                }, this.reconnectTime);
             }
         });
 
@@ -71,14 +89,16 @@ module.exports = class MDCConnection {
             this.connecting = false;
             console.log(`${this.rhost}: Disconnected`);
             if (this.cmdQueue.length > 0) {
-                setTimeout(() => { this._connect(); }, this.reconnectTime);
+                setTimeout(() => {
+                    this._connect();
+                }, this.reconnectTime);
             }
-        })
+        });
 
         connection.on('data', (data) => {
             console.log(`${this.rhost}: DATA`, data);
             this._onReceive(data);
-        })
+        });
 
         connection.connect(
             this.rport,
@@ -87,20 +107,12 @@ module.exports = class MDCConnection {
                 this.connection = connection;
                 console.log(`${this.rhost}: Connected to port ${this.rport}`);
                 this.connecting = false;
-                setTimeout(() => { this._transmit(); }, this.cmdRate);
+                setTimeout(() => {
+                    this._transmit();
+                }, this.cmdRate);
             }
-        )
-        return connection;
-    }
+        );
 
-    send(cmd) {
-        return new Promise((resolve, reject) => {
-           this.cmdQueue.push({
-               resolve: resolve,
-               reject: reject,
-               cmd: cmd,
-           });
-           this._transmit();
-        });
+        return connection;
     }
 }

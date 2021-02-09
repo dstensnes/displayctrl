@@ -3,9 +3,10 @@
 const net = require('net');
 
 module.exports = class MDCConnection {
-    constructor(rhost) {
+    constructor(rhost, displayId = 0) {
         this.rhost = rhost;
         this.rport = 1515;
+        this.displayId = displayId;
         this.connection = null;
         this.cmdQueue = [];
         this.recvBuffer = Buffer.alloc(0);
@@ -15,13 +16,9 @@ module.exports = class MDCConnection {
         this.cmdRate = 10;
     }
 
-    send(packet) {
+    send(cmdId, cmdData = []) {
         return new Promise((resolve, reject) => {
-            this.cmdQueue.push({
-                resolve: resolve,
-                reject: reject,
-                packet: packet,
-            });
+            this.cmdQueue.push({cmdId, cmdData: Buffer.from(cmdData), resolve, reject});
             this._transmit();
         });
     }
@@ -37,7 +34,31 @@ module.exports = class MDCConnection {
         }
 
         this.processingCommand = true;
-        this.connection.write(this.cmdQueue[0].packet, null);
+
+        let pkgData = Buffer.concat([
+            Buffer.from([
+                0xAA,
+                this.cmdQueue[0].cmdId,
+                this.displayId,
+                this.cmdQueue[0].cmdData.byteLength
+            ]),
+            this.cmdQueue[0].cmdData
+        ]);
+
+        let checksum = Buffer.from([this._checksum(pkgData.slice(1))]);
+        pkgData = Buffer.concat([pkgData, checksum]);
+
+        console.log("PKGDATA> ", pkgData);
+
+        this.connection.write(pkgData, null);
+    }
+
+    _receiveError(msg, terminate = true) {
+        console.log(`${this.rhost}: ${msg}\n`);
+        if (terminate) {
+            this.connection.destroy();
+            this.connection = null;
+        }
     }
 
     _onReceive(data) {
@@ -48,20 +69,45 @@ module.exports = class MDCConnection {
         this.recvBuffer = Buffer.concat([this.recvBuffer, data]);
 
         while (true) {
-            let buf = this.recvBuffer.toString();
-            let pos = buf.indexOf("\n");
-            if (pos >= 0) {
-                let cmd = this.cmdQueue.shift();
-                let result = buf.substr(0, pos);
-                this.recvBuffer = this.recvBuffer.slice(pos + 1);
-                this.processingCommand = false;
-                cmd.resolve(result);
-                setTimeout(() => {
-                    this._transmit();
-                }, this.cmdRate);
-            } else {
+            if (this.recvBuffer.byteLength < 6) {
+                break; // Not enough data yet.
+            }
+
+            if (this.recvBuffer[0] !== 0xAA || this.recvBuffer[1] !== 0xFF) {
+                this._receiveError("Invalid magic bytes");
                 break;
             }
+
+            let splitPos = 4 + this.recvBuffer[3]; // Header + data_length(offset 3)
+            if (this.recvBuffer.byteLength < splitPos) {
+                break; // Not a full packet yet.
+            }
+
+            if (this._checksum(this.recvBuffer.slice(1, splitPos)) !== this.recvBuffer[splitPos]) {
+                this._receiveError("Checksum failure");
+                break;
+            }
+
+            let success = this.recvBuffer[4] === 0x41;
+
+            let cmd = this.cmdQueue.shift();
+            let result = this.recvBuffer.slice(6, splitPos);
+            this.recvBuffer = this.recvBuffer.slice(splitPos + 1);
+            console.log("RECVBUFFER> ", this.recvBuffer);
+            console.log("PACKET> ", result);
+
+            this.processingCommand = false;
+
+            if (success) {
+                cmd.resolve(result);
+            } else {
+                this._receiveError("Command failed", false);
+                cmd.reject(result);
+            }
+
+            setTimeout(() => {
+                this._transmit();
+            }, this.cmdRate);
         }
     }
 
@@ -114,5 +160,15 @@ module.exports = class MDCConnection {
         );
 
         return connection;
+    }
+
+    _checksum(data) {
+        let sum = 0;
+        for (let i = 0; i < data.byteLength; i++) {
+            sum += data[i];
+            sum %= 256;
+            console.log("CHECKSUM1> ", data[i].toString(16), sum.toString(16));
+        }
+        return sum;
     }
 }

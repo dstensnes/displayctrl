@@ -13,18 +13,32 @@ module.exports = class MDCConnection {
         this.processingCommand = false;
         this.connecting = false;
         this.reconnectTime = 1000;
+        this.retryCmdDelay = 1000;
+        this.retryCmdMaxCount = 3;
         this.cmdRate = 10;
     }
 
-    send(cmdId, cmdData = []) {
+    send(cmdData = []) {
+        let tmpData = Buffer.from(cmdData);
         return new Promise((resolve, reject) => {
-            this.cmdQueue.push({cmdId, cmdData: Buffer.from(cmdData), resolve, reject});
+            if (tmpData.length < 1) {
+                reject("No data to send");
+                return;
+            }
+            this.cmdQueue.push({
+                cmdId: tmpData[0],
+                cmdData: tmpData.slice(1),
+                retryCounter: 0,
+                retryTimer: null,
+                resolve,
+                reject,
+            });
             this._transmit();
         });
     }
 
     _transmit() {
-        if (this.connecting || this.processingCommand || this.cmdQueue.length === 0) {
+        if (this.connecting || this.cmdQueue.length === 0) {
             return;
         }
 
@@ -48,17 +62,17 @@ module.exports = class MDCConnection {
         let checksum = Buffer.from([this._checksum(pkgData.slice(1))]);
         pkgData = Buffer.concat([pkgData, checksum]);
 
-        console.log("PKGDATA> ", pkgData);
+        this.cmdQueue[0].retryCounter += 1;
 
-        this.connection.write(pkgData, null);
-    }
-
-    _receiveError(msg, terminate = true) {
-        console.log(`${this.rhost}: ${msg}\n`);
-        if (terminate) {
-            this.connection.destroy();
-            this.connection = null;
+        if (!this.cmdQueue[0].retryTimer) {
+            this.cmdQueue[0].retryTimer = setTimeout(() => {
+                this.cmdQueue[0].retryTimer = null;
+                this._transmit();
+            }, this.retryCmdDelay);
         }
+
+        console.log(`Transmit[${this.cmdQueue[0].retryCounter}]> `, pkgData);
+        this.connection.write(pkgData, null);
     }
 
     _onReceive(data) {
@@ -91,23 +105,48 @@ module.exports = class MDCConnection {
             let success = this.recvBuffer[4] === 0x41;
 
             let cmd = this.cmdQueue.shift();
-            let result = this.recvBuffer.slice(6, splitPos);
+            clearTimeout(cmd.retryTimer);
+            cmd.retryTimer = null;
+
+            let receivedPkg = Buffer.concat([
+                this.recvBuffer.slice(5, 6),
+                this.recvBuffer.slice(6, splitPos)
+            ]);
             this.recvBuffer = this.recvBuffer.slice(splitPos + 1);
             console.log("RECVBUFFER> ", this.recvBuffer);
-            console.log("PACKET> ", result);
+            console.log("RECEIVED> ", receivedPkg);
 
             this.processingCommand = false;
 
             if (success) {
-                cmd.resolve(result);
+                cmd.resolve(receivedPkg);
             } else {
                 this._receiveError("Command failed", false);
-                cmd.reject(result);
+                cmd.reject(receivedPkg);
             }
 
             setTimeout(() => {
                 this._transmit();
             }, this.cmdRate);
+        }
+    }
+
+    _receiveError(msg, terminate = true) {
+        console.log(`${this.rhost}: ${msg}\n`);
+        if (terminate) {
+            this._disconnect();
+        }
+    }
+
+    _disconnect() {
+        if (this.connection) {
+            this.connection.destroy();
+            this.connection = null;
+            this.connecting = false;
+            this.processingCommand = false;
+            if (this.cmdQueue.length > 0 && this.cmdQueue[0].retryTimer) {
+                clearTimeout(this.cmdQueue[0].retryTimer);
+            }
         }
     }
 
@@ -124,9 +163,13 @@ module.exports = class MDCConnection {
             this.connecting = false;
             console.log(`${this.rhost}: `, e.code);
             if (this.cmdQueue.length > 0) {
+                if (this.cmdQueue[0].retryTimer) {
+                    clearTimeout(this.cmdQueue[0].retryTimer);
+                };
                 setTimeout(() => {
                     this._connect();
                 }, this.reconnectTime);
+
             }
         });
 
@@ -135,6 +178,9 @@ module.exports = class MDCConnection {
             this.connecting = false;
             console.log(`${this.rhost}: Disconnected`);
             if (this.cmdQueue.length > 0) {
+                if (this.cmdQueue[0].retryTimer) {
+                    clearTimeout(this.cmdQueue[0].retryTimer);
+                };
                 setTimeout(() => {
                     this._connect();
                 }, this.reconnectTime);
@@ -167,7 +213,7 @@ module.exports = class MDCConnection {
         for (let i = 0; i < data.byteLength; i++) {
             sum += data[i];
             sum %= 256;
-            console.log("CHECKSUM1> ", data[i].toString(16), sum.toString(16));
+            // console.log("CHECKSUM1> ", data[i].toString(16), sum.toString(16));
         }
         return sum;
     }

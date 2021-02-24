@@ -1,16 +1,19 @@
 {
   "dependencies": {
     "express": "^4.17.1",
+    "rollup": "^2.39.1",
+    "rollup-plugin-commonjs": "^10.1.0",
+    "rollup-plugin-vue": "^6.0.0",
+    "vue": "^3.0.6",
     "ws": "^7.4.2"
   },
   "scripts": {
+    "build": "rollup ",
     "dev": "node src/index.js"
   },
   "devDependencies": {
     "autoprefixer": "^10.2.4",
     "postcss": "^8.2.4",
-    "react": "~17.0.1",
-    "react-dom": "~17.0.1",
     "tailwindcss": "^2.0.2"
   }
 }

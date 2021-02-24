@@ -13,6 +13,5 @@ module.exports = class AbstractDevice {
 
     registerCommand(cmdObj) {
         let c = new cmdObj(this.devInfo, this.state)
-
     }
 };

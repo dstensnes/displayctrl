@@ -16,6 +16,9 @@ module.exports = class MDCConnection {
         this.retryCmdDelay = 1000;
         this.retryCmdMaxCount = 3;
         this.cmdRate = 10;
+        this.onUnexpectedReceive = (pkg) => {
+            console.log("UNEXPECTED> ", pkg);
+        };
     }
 
     send(cmdData = []) {
@@ -36,6 +39,8 @@ module.exports = class MDCConnection {
             this._transmit();
         });
     }
+
+
 
     _transmit() {
         if (this.connecting || this.cmdQueue.length === 0) {
@@ -108,17 +113,26 @@ module.exports = class MDCConnection {
             clearTimeout(cmd.retryTimer);
             cmd.retryTimer = null;
 
+            let receivedCmdId = this.recvBuffer[5];
             let receivedPkg = Buffer.concat([
                 this.recvBuffer.slice(5, 6),
                 this.recvBuffer.slice(6, splitPos)
             ]);
-            this.recvBuffer = this.recvBuffer.slice(splitPos + 1);
-            console.log("RECVBUFFER> ", this.recvBuffer);
-            console.log("RECEIVED> ", receivedPkg);
 
+            this.recvBuffer = this.recvBuffer.slice(splitPos + 1);
             this.processingCommand = false;
 
-            if (success) {
+            if (receivedCmdId !== cmd.cmdId) {
+                // If we didn't expect this packet, do not resolve.
+                // Instead, we pass to onUnexpectedReceive, if defined,
+                // but only if it is a success packet, since we are
+                // not worried about failed commands that we didn't
+                // issue.
+                if (success && (typeof(this.onUnexpectedReceive) == 'function')) {
+                    this.onUnexpectedReceive(receivedPkg);
+                }
+            }
+            else if (success) {
                 cmd.resolve(receivedPkg);
             } else {
                 this._receiveError("Command failed", false);
@@ -165,7 +179,7 @@ module.exports = class MDCConnection {
             if (this.cmdQueue.length > 0) {
                 if (this.cmdQueue[0].retryTimer) {
                     clearTimeout(this.cmdQueue[0].retryTimer);
-                };
+                }
                 setTimeout(() => {
                     this._connect();
                 }, this.reconnectTime);
@@ -180,7 +194,7 @@ module.exports = class MDCConnection {
             if (this.cmdQueue.length > 0) {
                 if (this.cmdQueue[0].retryTimer) {
                     clearTimeout(this.cmdQueue[0].retryTimer);
-                };
+                }
                 setTimeout(() => {
                     this._connect();
                 }, this.reconnectTime);

@@ -18,10 +18,9 @@ const server = app.listen(3000);
 server.on('upgrade', (request, socket, head) => {
     wsServer.handleUpgrade(request, socket, head, socket => {
         wsServer.emit('connection', socket, request);
+        socket.send('{"_msgType":"hello", "test":"data"}');
     });
 });
-
-
 
 app.use(express.static('public'));
 

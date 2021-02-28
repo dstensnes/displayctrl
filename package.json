@@ -1,19 +1,26 @@
 {
+  "name": "displayctrl",
+  "version": "0.5",
+  "license": "MIT",
   "dependencies": {
     "express": "^4.17.1",
-    "rollup": "^2.39.1",
-    "rollup-plugin-commonjs": "^10.1.0",
-    "rollup-plugin-vue": "^6.0.0",
-    "vue": "^3.0.6",
     "ws": "^7.4.2"
   },
   "scripts": {
-    "build": "rollup ",
-    "dev": "node src/index.js"
+    "build": "rollup -c",
+    "dev": "node src/index.js",
+    "watch": "rollup -c --watch"
   },
   "devDependencies": {
+    "@rollup/plugin-node-resolve": "^11.2.0",
+    "@rollup/plugin-replace": "^2.4.1",
+    "@vue/compiler-sfc": "^3.0.6",
     "autoprefixer": "^10.2.4",
     "postcss": "^8.2.4",
-    "tailwindcss": "^2.0.2"
+    "rollup": "^2.39.1",
+    "rollup-plugin-commonjs": "^10.1.0",
+    "rollup-plugin-vue": "^6.0.0",
+    "tailwindcss": "^2.0.2",
+    "vue": "^3.0.6"
   }
 }

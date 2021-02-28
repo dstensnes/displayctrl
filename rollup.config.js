@@ -1,19 +1,32 @@
+import { nodeResolve } from '@rollup/plugin-node-resolve';
+import replace from '@rollup/plugin-replace';
 import commonjs from 'rollup-plugin-commonjs';
-import VuePlugin from 'rollup-plugin-vue';
+import vue from 'rollup-plugin-vue';
 
 export default [
     {
+        treeshake: true,
         input: 'frontend/viewer/index.js',
         output: [
             {
-                file: 'public/js/viewer.js', // the name of our esm library
+                file: 'public/viewer/viewer.js', // the name of our esm library
                 format: 'esm', // the format of choice
-                sourcemap: true, // ask rollup to include sourcemaps
+                // sourcemap: true, // ask rollup to include sourcemaps
             },
         ],
         plugins: [
+            replace({
+                'process.env.NODE_ENV': JSON.stringify('production'),
+                '__VUE_PROD_DEVTOOLS__': 'false',
+                'preventAssignment': true,
+            }),
+            nodeResolve(),
             commonjs(),
-            VuePlugin(),
+            vue({
+                target: 'browser',
+                devtools: false,
+                transformAssetUrls: false,
+            }),
         ],
     },
 ];
